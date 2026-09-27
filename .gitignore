@@ -1,0 +1,17 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+*.pdb
+*.exe
+
+# Large benchmark data fixtures (100MB - 12GB+)
+*.txt
+*.col_bin
+*.station_idx
+*.zst_blocks
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

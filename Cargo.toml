@@ -1,0 +1,41 @@
+[package]
+name = "one_brc_lab"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+memmap2 = "0.9"
+rayon = "1.8"
+rand = "0.8"
+memchr = "2.7"
+zstd = "0.13"
+
+[[bin]]
+name = "generate"
+path = "src/generator.rs"
+
+[[bin]]
+name = "solve_1brc"
+path = "src/main.rs"
+
+[[bin]]
+name = "compress_1brc"
+path = "src/compress.rs"
+
+[[bin]]
+name = "solve_compressed"
+path = "src/solve_compressed.rs"
+
+[[bin]]
+name = "to_columnar"
+path = "src/to_columnar.rs"
+
+[[bin]]
+name = "solve_unconstrained"
+path = "src/solve_unconstrained.rs"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
