@@ -13,13 +13,14 @@ const TABLE_MASK: usize = TABLE_SIZE - 1;
 #[repr(C, align(64))]
 struct Entry {
     hash: u64,
-    name_ptr: *const u8,
-    name_len: u32,
+    sum: i64,
+    count: u32,
     min: i16,
     max: i16,
-    count: u32,
-    sum: i64,
-    name_prefix: [u8; 24],
+    name_len: u32,
+    _pad: u32,
+    prefix: [u64; 3],
+    name_ptr: *const u8,
 }
 
 const _: () = assert!(std::mem::size_of::<Entry>() == 64);
@@ -28,13 +29,14 @@ impl Default for Entry {
     fn default() -> Self {
         Self {
             hash: 0,
-            name_ptr: std::ptr::null(),
-            name_len: 0,
+            sum: 0,
+            count: 0,
             min: i16::MAX,
             max: i16::MIN,
-            count: 0,
-            sum: 0,
-            name_prefix: [0u8; 24],
+            name_len: 0,
+            _pad: 0,
+            prefix: [0u64; 3],
+            name_ptr: std::ptr::null(),
         }
     }
 }
@@ -60,20 +62,30 @@ fn format_tenths(val: i64) -> String {
 }
 
 #[inline(always)]
-unsafe fn fast_hash_raw(ptr: *const u8, len: usize) -> u64 {
-    if len < 8 {
-        let mut buf = [0u8; 8];
-        std::ptr::copy_nonoverlapping(ptr, buf.as_mut_ptr(), len);
-        let word = u64::from_le_bytes(buf);
-        return word.wrapping_mul(0x517cc1b727220a95);
+unsafe fn fast_hash_and_words(ptr: *const u8, len: usize) -> (u64, u64, u64, u64) {
+    if len <= 8 {
+        let w = std::ptr::read_unaligned(ptr as *const u64);
+        let masked = _bzhi_u64(w, (len * 8) as u32);
+        let hash = masked.wrapping_mul(0x517cc1b727220a95);
+        return (hash, masked, 0, 0);
     }
 
     if len <= 16 {
-        let first = std::ptr::read_unaligned(ptr as *const u64);
-        let last = std::ptr::read_unaligned(ptr.add(len - 8) as *const u64);
-        return (first ^ last.rotate_left(17))
+        let w0 = std::ptr::read_unaligned(ptr as *const u64);
+        let w1 = std::ptr::read_unaligned(ptr.add(len - 8) as *const u64);
+        let hash = (w0 ^ w1.rotate_left(17))
             .wrapping_add((len as u64).wrapping_mul(0x9e3779b97f4a7c15))
             .wrapping_mul(0x517cc1b727220a95);
+        return (hash, w0, w1, 0);
+    }
+
+    if len <= 24 {
+        let w0 = std::ptr::read_unaligned(ptr as *const u64);
+        let w1 = std::ptr::read_unaligned(ptr.add(8) as *const u64);
+        let w2 = std::ptr::read_unaligned(ptr.add(len - 8) as *const u64);
+        let hash = (w0 ^ w1.rotate_left(13) ^ w2.rotate_left(27) ^ (len as u64).wrapping_mul(0x9e3779b97f4a7c15))
+            .wrapping_mul(0x517cc1b727220a95);
+        return (hash, w0, w1, w2);
     }
 
     if len <= 32 {
@@ -81,12 +93,18 @@ unsafe fn fast_hash_raw(ptr: *const u8, len: usize) -> u64 {
         let w1 = std::ptr::read_unaligned(ptr.add(8) as *const u64);
         let w2 = std::ptr::read_unaligned(ptr.add(len - 16) as *const u64);
         let w3 = std::ptr::read_unaligned(ptr.add(len - 8) as *const u64);
-        let h = w0 ^ w1.rotate_left(13) ^ w2.rotate_left(27) ^ w3.rotate_left(41) ^ (len as u64).wrapping_mul(0x9e3779b97f4a7c15);
-        return h.wrapping_mul(0x517cc1b727220a95);
+        let hash = (w0 ^ w1.rotate_left(13) ^ w2.rotate_left(27) ^ w3.rotate_left(41) ^ (len as u64).wrapping_mul(0x9e3779b97f4a7c15))
+            .wrapping_mul(0x517cc1b727220a95);
+        return (hash, w0, w1, w2);
     }
 
-    // For len > 32 (up to 100 bytes): full-coverage linear fold reading every 8-byte chunk
-    // GUARANTEES zero skipped bytes across any string length!
+    let hash = hash_raw_long(ptr, len);
+    (hash, 0, 0, 0)
+}
+
+#[cold]
+#[inline(never)]
+unsafe fn hash_raw_long(ptr: *const u8, len: usize) -> u64 {
     let mut h = (len as u64).wrapping_mul(0x9e3779b97f4a7c15);
     let mut offset = 0;
     while offset + 8 <= len {
@@ -102,19 +120,41 @@ unsafe fn fast_hash_raw(ptr: *const u8, len: usize) -> u64 {
 }
 
 #[inline(always)]
-unsafe fn update_table(table: &mut [Entry], name_ptr: *const u8, name_len: usize, temp: i16) {
-    let hash = fast_hash_raw(name_ptr, name_len);
-    // Use high 14 bits of 64-bit product (avoids lower-bit prefix collision vulnerability)
+unsafe fn update_table(
+    table: &mut [Entry],
+    name_ptr: *const u8,
+    name_len: usize,
+    hash: u64,
+    w0: u64,
+    w1: u64,
+    w2: u64,
+    temp: i16,
+) {
     let mut slot = ((hash >> 50) as usize) & TABLE_MASK;
 
     loop {
         let entry = table.get_unchecked_mut(slot);
-        if entry.count == 0 {
+        if entry.hash == hash && entry.name_len as usize == name_len {
+            let matched = if name_len <= 24 {
+                ((w0 ^ entry.prefix[0]) | (w1 ^ entry.prefix[1]) | (w2 ^ entry.prefix[2])) == 0
+            } else {
+                std::slice::from_raw_parts(name_ptr, name_len) == std::slice::from_raw_parts(entry.name_ptr, name_len)
+            };
+
+            if matched {
+                entry.min = entry.min.min(temp);
+                entry.max = entry.max.max(temp);
+                entry.sum += temp as i64;
+                entry.count += 1;
+                return;
+            }
+        } else if entry.count == 0 {
             entry.hash = hash;
             entry.name_ptr = name_ptr;
             entry.name_len = name_len as u32;
-            let copy_len = name_len.min(24);
-            std::ptr::copy_nonoverlapping(name_ptr, entry.name_prefix.as_mut_ptr(), copy_len);
+            entry.prefix[0] = w0;
+            entry.prefix[1] = w1;
+            entry.prefix[2] = w2;
             entry.min = temp;
             entry.max = temp;
             entry.sum = temp as i64;
@@ -122,32 +162,29 @@ unsafe fn update_table(table: &mut [Entry], name_ptr: *const u8, name_len: usize
             return;
         }
 
-        if entry.hash == hash && entry.name_len as usize == name_len {
-            let match_found = if name_len <= 24 {
-                let s1 = std::slice::from_raw_parts(name_ptr, name_len);
-                let s2 = &entry.name_prefix[..name_len];
-                s1 == s2
-            } else {
-                let s1 = std::slice::from_raw_parts(name_ptr, name_len);
-                let s2 = std::slice::from_raw_parts(entry.name_ptr, name_len);
-                s1 == s2
-            };
-
-            if match_found {
-                entry.min = entry.min.min(temp);
-                entry.max = entry.max.max(temp);
-                entry.sum += temp as i64;
-                entry.count += 1;
-                return;
-            }
-        }
-
         slot = (slot + 1) & TABLE_MASK;
     }
 }
 
 #[inline(always)]
-unsafe fn find_semi_avx2(mut ptr: *const u8) -> *const u8 {
+unsafe fn find_semi_fast(ptr: *const u8) -> (*const u8, usize) {
+    let semi_vec = _mm256_set1_epi8(b';' as i8);
+    let v = _mm256_loadu_si256(ptr as *const __m256i);
+    let cmp = _mm256_cmpeq_epi8(v, semi_vec);
+    let mask = _mm256_movemask_epi8(cmp) as u32;
+    if mask != 0 {
+        let len = mask.trailing_zeros() as usize;
+        (ptr.add(len), len)
+    } else {
+        find_semi_slow(ptr)
+    }
+}
+
+#[cold]
+#[inline(never)]
+unsafe fn find_semi_slow(mut ptr: *const u8) -> (*const u8, usize) {
+    let base = ptr;
+    ptr = ptr.add(32);
     let semi_vec = _mm256_set1_epi8(b';' as i8);
     loop {
         let v = _mm256_loadu_si256(ptr as *const __m256i);
@@ -155,37 +192,36 @@ unsafe fn find_semi_avx2(mut ptr: *const u8) -> *const u8 {
         let mask = _mm256_movemask_epi8(cmp) as u32;
         if mask != 0 {
             let offset = mask.trailing_zeros() as usize;
-            return ptr.add(offset);
+            let semi = ptr.add(offset);
+            return (semi, (semi as usize) - (base as usize));
         }
         ptr = ptr.add(32);
     }
 }
 
 #[inline(always)]
-unsafe fn parse_temp_and_next(ptr: *const u8) -> (i16, *const u8) {
-    let b0 = *ptr;
-    let (neg, p) = if b0 == b'-' {
-        (true, ptr.add(1))
+unsafe fn parse_temp_swar(ptr: *const u8) -> (i16, *const u8) {
+    let word = std::ptr::read_unaligned(ptr as *const u64);
+    let neg = (word as u8) == b'-';
+    let neg_offset = neg as usize;
+    let num_word = word >> (neg_offset * 8);
+
+    let two_digits = ((num_word >> 8) as u8) != b'.';
+
+    let d0 = (num_word & 0x0F) as i16;
+    let (val, len) = if two_digits {
+        let d1 = ((num_word >> 8) & 0x0F) as i16;
+        let d2 = ((num_word >> 24) & 0x0F) as i16;
+        let is_cr = ((num_word >> 32) as u8) == b'\r';
+        (d0 * 100 + d1 * 10 + d2, 5 + is_cr as usize)
     } else {
-        (false, ptr)
+        let d1 = ((num_word >> 16) & 0x0F) as i16;
+        let is_cr = ((num_word >> 24) as u8) == b'\r';
+        (d0 * 10 + d1, 4 + is_cr as usize)
     };
 
-    let c0 = *p;
-    let c1 = *p.add(1);
-
-    let (val, next_p) = if c1 == b'.' {
-        let c2 = *p.add(2);
-        let v = (c0 - b'0') as i16 * 10 + (c2 - b'0') as i16;
-        let advance = 4 + (*p.add(3) == b'\r') as usize;
-        (v, p.add(advance))
-    } else {
-        let c3 = *p.add(3);
-        let v = (c0 - b'0') as i16 * 100 + (c1 - b'0') as i16 * 10 + (c3 - b'0') as i16;
-        let advance = 5 + (*p.add(4) == b'\r') as usize;
-        (v, p.add(advance))
-    };
-
-    (if neg { -val } else { val }, next_p)
+    let signed_val = if neg { -val } else { val };
+    (signed_val, ptr.add(neg_offset + len))
 }
 
 #[inline(always)]
@@ -199,13 +235,12 @@ unsafe fn process_single_stream(table: &mut [Entry], mut ptr: *const u8, chunk_e
 
     while ptr < safe_end {
         let name_start = ptr;
-        let semi_ptr = find_semi_avx2(name_start);
-        let name_len = (semi_ptr as usize) - (name_start as usize);
-
+        let (semi_ptr, name_len) = find_semi_fast(name_start);
+        let (hash, w0, w1, w2) = fast_hash_and_words(name_start, name_len);
         let temp_ptr = semi_ptr.add(1);
-        let (temp, next_ptr) = parse_temp_and_next(temp_ptr);
+        let (temp, next_ptr) = parse_temp_swar(temp_ptr);
 
-        update_table(table, name_start, name_len, temp);
+        update_table(table, name_start, name_len, hash, w0, w1, w2, temp);
         ptr = next_ptr;
     }
 
@@ -238,7 +273,8 @@ unsafe fn process_single_stream(table: &mut [Entry], mut ptr: *const u8, chunk_e
         }
 
         let temp = if neg { -val } else { val };
-        update_table(table, name_start, name_len, temp);
+        let (hash, w0, w1, w2) = fast_hash_and_words(name_start, name_len);
+        update_table(table, name_start, name_len, hash, w0, w1, w2, temp);
 
         while p < chunk_end && (*p == b'\n' || *p == b'\r') {
             p = p.add(1);
@@ -285,19 +321,19 @@ unsafe fn process_chunk_fast(table: &mut [Entry], chunk_start: *const u8, chunk_
     while ptr0 < safe_end0 && ptr1 < safe_end1 {
         // Stream 0 - Parse line
         let name0 = ptr0;
-        let semi0 = find_semi_avx2(name0);
-        let len0 = (semi0 as usize) - (name0 as usize);
-        let (temp0, next0) = parse_temp_and_next(semi0.add(1));
+        let (semi0, len0) = find_semi_fast(name0);
+        let (hash0, w0_0, w1_0, w2_0) = fast_hash_and_words(name0, len0);
+        let (temp0, next0) = parse_temp_swar(semi0.add(1));
 
         // Stream 1 - Parse line (independent execution pipeline)
         let name1 = ptr1;
-        let semi1 = find_semi_avx2(name1);
-        let len1 = (semi1 as usize) - (name1 as usize);
-        let (temp1, next1) = parse_temp_and_next(semi1.add(1));
+        let (semi1, len1) = find_semi_fast(name1);
+        let (hash1, w0_1, w1_1, w2_1) = fast_hash_and_words(name1, len1);
+        let (temp1, next1) = parse_temp_swar(semi1.add(1));
 
         // Stream 0 & 1 - Update hash table
-        update_table(table, name0, len0, temp0);
-        update_table(table, name1, len1, temp1);
+        update_table(table, name0, len0, hash0, w0_0, w1_0, w2_0, temp0);
+        update_table(table, name1, len1, hash1, w0_1, w1_1, w2_1, temp1);
 
         ptr0 = next0;
         ptr1 = next1;

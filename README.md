@@ -74,12 +74,12 @@ Environment: Intel Core i7-12700H (6 P-cores + 8 E-cores, 20 logical threads, 32
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | **Huy Nguyen (`1brc-hanoy`)** | Incorrect (Truncated stations) | 0.357s | 0.358s | 280.1 M rows/s | 279.3 M rows/s |
 | **Naive Multithreaded Rust** | Correct | 0.485s | 0.490s | 206.2 M rows/s | 204.1 M rows/s |
-| **1BRC Ultra-Apex** | Bit-Exact & Safe | **0.293s** | **0.298s** | **341.30 M rows/s** | **335.83 M rows/s** |
+| **1BRC Ultra-Apex** | Bit-Exact & Safe | **0.194s** | **0.197s** | **514.91 M rows/s** | **507.97 M rows/s** |
 
 ### Benchmark B: Single-Thread Throughput (`THREADS=1`)
 Measured on a single physical core (Intel Core i7-12700H, 100 Million rows in RAM):
-- Compute Time: **2.802s**
-- Single-Core Throughput: **35.68 Million rows/second (0.44 GiB/s)**
+- Compute Time: **1.656s**
+- Single-Core Throughput: **60.37 Million rows/second (0.74 GiB/s)** (74.2% of world-record server per-core throughput)
 
 ### Benchmark C: Full 1 Billion Rows from Physical SSD (`measurements_1b.txt` - 12.31 GB)
 - Execution Time (Cold start from NVMe SSD): **5.279s**
@@ -103,8 +103,8 @@ Evaluated under official 1BRC competition constraints on raw `measurements.txt` 
 | **Official #4** | Serkan Özal (OpenJDK 21) | AMD EPYC 7502P (8 Server Cores) | Linux ramfs (RAM) | 00:01.880 | 531.9 M rows/s | 66.5 M rows/s/core |
 | **Official #5** | Van Phu DO / `abeobk` (GraalVM Java) | AMD EPYC 7502P (8 Server Cores) | Linux ramfs (RAM) | 00:01.921 | 520.6 M rows/s | 65.1 M rows/s/core |
 | **C# Leader** | buybackoff/1brc (.NET 8) | AMD EPYC 7763 (64 Server Cores) | Linux ramfs (RAM) | 00:00.950 | 1,052.6 M rows/s | 16.4 M rows/s/core |
-| **Rust Ultra-Apex** | **In-Memory Warm (This Repo, Safe Rust)** | Intel i7-12700H (14 Mobile Cores) | DDR5 RAM | 00:02.930 (extrap.) | **341.3 M rows/s** | **24.4 M rows/s/core (mixed)** |
-| **Rust Ultra-Apex** | **Single-Core Standalone (`THREADS=1`)** | Intel i7-12700H (1 Physical P-core) | DDR5 RAM | 00:28.020 (extrap.) | **35.7 M rows/s** | **35.7 M rows/s/core** |
+| **Rust Ultra-Apex** | **In-Memory Warm (This Repo, Safe Rust)** | Intel i7-12700H (14 Mobile Cores) | DDR5 RAM | 00:01.942 (extrap.) | **514.9 M rows/s** | **36.8 M rows/s/core (mixed)** |
+| **Rust Ultra-Apex** | **Single-Core Standalone (`THREADS=1`)** | Intel i7-12700H (1 Physical P-core) | DDR5 RAM | 00:16.564 (extrap.) | **60.4 M rows/s** | **60.4 M rows/s/core** |
 | **Rust Ultra-Apex** | **Cold Physical I/O (This Repo, Safe Rust)** | Intel i7-12700H (14 Mobile Cores) | Physical NVMe SSD (NTFS) | 00:05.279 | **189.4 M rows/s** | **13.5 M rows/s/core** |
 
 #### Track 2: Analytical Research Track (Unconstrained Columnar Binary)
@@ -124,12 +124,12 @@ This track evaluates processing throughput when decoupling analytical aggregatio
 2. **Enterprise Server Silicon vs. Mobile Laptop Silicon**:
    - The official 1BRC leaders ran on dedicated enterprise server hardware (AMD EPYC 7502P) with 128 MB L3 cache, quad-channel server memory, and a sustained 180W+ thermal budget, allowing all 8 cores to run permanently at maximum boost clock.
    - Ultra-Apex runs on an Intel Core i7-12700H mobile processor with an asymmetric hybrid architecture (6 performance P-cores + 8 efficiency E-cores with lower IPC and clocks), constrained by a 45–65W mobile power and thermal throttling envelope.
-   - A single physical P-core in Ultra-Apex processes **35.68 Million rows/second** (`THREADS=1`). On an 8-core enterprise server with identical single-core efficiency and unthrottled memory bus, linear scaling yields ~570–650 M rows/s.
+   - A single physical P-core in Ultra-Apex processes **60.37 Million rows/second** (`THREADS=1`), achieving **74.2%** of Thomas Wuerthinger's server per-core record (81.4 M rows/s/core) while running under mobile power constraints.
 
 3. **In-Memory RAM Disk vs. Physical Cold NVMe I/O**:
    - The official 1BRC competition runs exclusively on Linux `ramfs`/`tmpfs`, measuring in-memory compute where disk latency is 0 ms and I/O bandwidth equals bus memory bandwidth (~40–50 GB/s).
    - Ultra-Apex cold benchmark (Benchmark C: 5.279s for 1 Billion rows / 12.31 GB) evaluates physical NVMe SSD cold reads over NTFS on Windows 11. The bottleneck is the Windows kernel I/O request completion path and physical SSD bus saturation (~2.33 GiB/s sustained read).
-   - In warm memory (Benchmark A), Ultra-Apex processes 100 Million rows in **0.293s** (**341.30 Million rows/second**), and the unconstrained columnar engine processes 1 Billion rows in **0.356s** (**2,805 Million rows/second**).
+   - In warm memory (Benchmark A), Ultra-Apex processes 100 Million rows in **0.194s** (**514.91 Million rows/second**), and the unconstrained columnar engine processes 1 Billion rows in **0.356s** (**2,805 Million rows/second**).
 
 4. **Memory Safety and Hash Collision Guarantees**:
    - The top Java entries achieve peak speeds by utilizing `sun.misc.Unsafe` raw pointer dereferences without boundary checks and lossy 32-bit/64-bit station hashing that accepts specific collisions.
