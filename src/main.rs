@@ -388,9 +388,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let start_calc = Instant::now();
 
-    let num_chunks = (num_threads * 4).min((file_len as usize).max(1));
-    let approx_chunk_size = (file_len as usize) / num_chunks;
-    let mut chunk_ranges: Vec<(usize, usize)> = Vec::with_capacity(num_chunks);
+    let approx_chunk_size = (2 * 1024 * 1024).min(((file_len as usize) / num_threads.max(1)).max(32768));
+    let num_chunks = ((file_len as usize) + approx_chunk_size - 1) / approx_chunk_size.max(1);
+    let mut chunk_ranges: Vec<(usize, usize)> = Vec::with_capacity(num_chunks + 1);
 
     let mut current_offset = 0usize;
     for i in 0..num_chunks {
