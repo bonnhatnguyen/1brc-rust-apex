@@ -2,8 +2,8 @@
 
 A high-throughput, memory-safe implementation of the One Billion Row Challenge (1BRC) in Rust, designed for x86-64 microarchitectures with AVX2 and BMI2 support.
 
-- **Columnar Binary Engine (`solve_unconstrained`)**: **2,805.0 Million rows/second** (**0.356s** for 1 Billion rows) — Global #1 throughput record.
-- **Official Constrained Solver (`solve_1brc`)**: **341.30 Million rows/second** (**0.293s** compute time for 100M rows in warm memory; **35.68 Million rows/second** standalone on 1 physical P-core) with bit-exact compliance and hardened zero-collision memory safety.
+- **Official Constrained Solver (`solve_1brc`)**: **341.30 Million rows/second** (**0.293s** compute time for 100M rows in warm memory; **35.68 Million rows/second** standalone on 1 physical P-core) on raw UTF-8 text with bit-exact compliance and hardened zero-collision memory safety.
+- **Columnar Binary Engine (`solve_unconstrained`)**: **2,805.0 Million rows/second** (**0.356s** for 1 Billion rows) — High-performance pre-encoded binary research track demonstrating memory-bandwidth saturation.
 
 ---
 
@@ -85,38 +85,35 @@ Measured on a single physical core (Intel Core i7-12700H, 100 Million rows in RA
 - Execution Time (Cold start from NVMe SSD): **5.279s**
 - End-to-End Streaming Throughput: **189.42 Million rows/second (2.33 GiB/s)**
 
-### Benchmark D: Global Performance Leaderboard (Ranked by Throughput)
+### Benchmark D: Comparative Evaluation & Leaderboard Analysis
 
-When ranked strictly by **Processing Throughput (Million rows/second)** and **Total Aggregation Time** for 1 Billion rows, 1BRC Ultra-Apex holds the **#1 Global Throughput Record** via its Columnar Binary Engine.
+To provide a rigorous, transparent comparison, benchmarks are separated into two distinct tracks:
+1. **Official 1BRC Challenge Track**: Strict adherence to official competition rules (processing raw, unindexed UTF-8 text).
+2. **Analytical Research Track**: Pre-encoded columnar binary format demonstrating the upper bound of memory-bandwidth saturation.
 
-#### Global Performance Leaderboard (All Architectures & Formats)
+#### Track 1: Official 1BRC Challenge (Raw UTF-8 Text Baseline)
 
-| Global Rank | Implementation / Submitter | Architecture & Platform | Core Count & Topology | Dataset Format | Total Time (1B Rows) | Compute Throughput | Core Efficiency (Per-Core) |
-| :---: | :--- | :--- | :--- | :--- | :---: | :---: | :---: |
-| **#1** | **1BRC Ultra-Apex: Columnar Engine** | **Intel Core i7-12700H (Mobile)** | **6 P-cores + 8 E-cores (20 threads)** | **Columnar Binary (`.col_bin`)** | **00:00.356** | **2,805.0 M rows/s** | **200.4 M rows/s/core** |
-| **#2** | **buybackoff/1brc (.NET 8 / C#)** | AMD EPYC 7763 (Server) | 64 dedicated Zen3 cores | Raw UTF-8 Text | 00:00.950 | 1,052.6 M rows/s | 16.4 M rows/s/core |
-| **#3** | **Thomas Wuerthinger, Quan Anh Mai, Alfonso² Peterssen** | AMD EPYC 7502P (Server) | 8 dedicated Zen2 cores | Raw UTF-8 Text | 00:01.535 | 651.5 M rows/s | 81.4 M rows/s/core |
-| **#4** | **Artsiom Korzun** | AMD EPYC 7502P (Server) | 8 dedicated Zen2 cores | Raw UTF-8 Text | 00:01.587 | 630.1 M rows/s | 78.8 M rows/s/core |
-| **#5** | **Jaromir Hamala** | AMD EPYC 7502P (Server) | 8 dedicated Zen2 cores | Raw UTF-8 Text | 00:01.608 | 621.9 M rows/s | 77.7 M rows/s/core |
-| **#6** | **Serkan Özal** | AMD EPYC 7502P (Server) | 8 dedicated Zen2 cores | Raw UTF-8 Text | 00:01.880 | 531.9 M rows/s | 66.5 M rows/s/core |
-| **#7** | **Van Phu DO (`abeobk`)** | AMD EPYC 7502P (Server) | 8 dedicated Zen2 cores | Raw UTF-8 Text | 00:01.921 | 520.6 M rows/s | 65.1 M rows/s/core |
+Evaluated under official 1BRC competition constraints on raw `measurements.txt` (~12.5–13.8 GB). The official leaderboard was evaluated on standardized hardware: **Hetzner AX161 (AMD EPYC 7502P, 8 dedicated server cores, 128 GB RAM, Linux ramfs)**.
 
-#### Official 1BRC Raw Text (UTF-8) Leaderboard & Apex Positioning
-
-Under the strict official 1BRC rules (parsing raw, unindexed UTF-8 text without pre-encoding), the official leaderboard established by Gunnar Morling was evaluated on a dedicated enterprise server: **Hetzner AX161 (AMD EPYC 7502P, 8 dedicated cores, 128 GB RAM, Linux ramfs)**. 
-
-Below is the official raw-text ranking alongside 1BRC Ultra-Apex's official constrained solver (`solve_1brc`):
-
-| Category / Rank | Submitter / Implementation | Hardware Environment | Memory Medium | Total Time (1B Rows) | Aggregate Throughput | Per-Core Throughput |
+| Rank / Category | Submitter / Implementation | Hardware & Silicon | Execution Medium | Total Time (1B Rows) | Compute Throughput | Core Efficiency (Per-Core) |
 | :---: | :--- | :--- | :--- | :---: | :---: | :---: |
-| **Official #1** | Thomas Wuerthinger et al. (GraalVM Java) | AMD EPYC 7502P (8 Server Cores) | Linux ramfs (RAM) | 00:01.535 | 651.5 M rows/s | 81.4 M rows/s/core |
+| **Official #1** | **Thomas Wuerthinger, Quan Anh Mai, Alfonso² Peterssen** | AMD EPYC 7502P (8 Server Cores) | Linux ramfs (RAM) | **00:01.535** | **651.5 M rows/s** | **81.4 M rows/s/core** |
 | **Official #2** | Artsiom Korzun (GraalVM Java) | AMD EPYC 7502P (8 Server Cores) | Linux ramfs (RAM) | 00:01.587 | 630.1 M rows/s | 78.8 M rows/s/core |
 | **Official #3** | Jaromir Hamala (GraalVM Java) | AMD EPYC 7502P (8 Server Cores) | Linux ramfs (RAM) | 00:01.608 | 621.9 M rows/s | 77.7 M rows/s/core |
 | **Official #4** | Serkan Özal (OpenJDK 21) | AMD EPYC 7502P (8 Server Cores) | Linux ramfs (RAM) | 00:01.880 | 531.9 M rows/s | 66.5 M rows/s/core |
 | **Official #5** | Van Phu DO / `abeobk` (GraalVM Java) | AMD EPYC 7502P (8 Server Cores) | Linux ramfs (RAM) | 00:01.921 | 520.6 M rows/s | 65.1 M rows/s/core |
-| **Rust Ultra-Apex** | **In-Memory Warm (Safe Rust)** | Intel i7-12700H (14 Mobile Cores) | DDR5 RAM | 00:02.930 (extrap.) | 341.3 M rows/s | 24.4 M rows/s/core (mixed) |
+| **C# Leader** | buybackoff/1brc (.NET 8) | AMD EPYC 7763 (64 Server Cores) | Linux ramfs (RAM) | 00:00.950 | 1,052.6 M rows/s | 16.4 M rows/s/core |
+| **Rust Ultra-Apex** | **In-Memory Warm (This Repo, Safe Rust)** | Intel i7-12700H (14 Mobile Cores) | DDR5 RAM | 00:02.930 (extrap.) | **341.3 M rows/s** | **24.4 M rows/s/core (mixed)** |
 | **Rust Ultra-Apex** | **Single-Core Standalone (`THREADS=1`)** | Intel i7-12700H (1 Physical P-core) | DDR5 RAM | 00:28.020 (extrap.) | **35.7 M rows/s** | **35.7 M rows/s/core** |
-| **Rust Ultra-Apex** | **Cold Physical I/O (Safe Rust)** | Intel i7-12700H (14 Mobile Cores) | Physical NVMe SSD (NTFS) | 00:05.279 | 189.4 M rows/s | 13.5 M rows/s/core |
+| **Rust Ultra-Apex** | **Cold Physical I/O (This Repo, Safe Rust)** | Intel i7-12700H (14 Mobile Cores) | Physical NVMe SSD (NTFS) | 00:05.279 | **189.4 M rows/s** | **13.5 M rows/s/core** |
+
+#### Track 2: Analytical Research Track (Unconstrained Columnar Binary)
+
+This track evaluates processing throughput when decoupling analytical aggregation from raw UTF-8 string parsing overhead. Text is pre-encoded into columnar binary records (2-byte dictionary ID + 2-byte integer temperature tenths):
+
+| Implementation | Platform & Hardware | Storage Format | Total Time (1B Rows) | Aggregate Throughput | Per-Core Throughput |
+| :--- | :--- | :--- | :---: | :---: | :---: |
+| **1BRC Ultra-Apex (Columnar Engine)** | Intel Core i7-12700H (6 P-cores + 8 E-cores) | Columnar Binary (`.col_bin`) | **00:00.356** | **2,805.0 M rows/s** | **200.4 M rows/s/core** |
 
 #### Architectural Analysis & Divergence Notes
 
